@@ -90,7 +90,7 @@ When he sends a message:
 Current open tasks:
 ${taskSummary || 'No open tasks yet.'}
 
-Respond in JSON only — no markdown, no code blocks, just raw JSON:
+Respond in JSON only ï¿½ no markdown, no code blocks, just raw JSON:
 {"reply":"your reply","action":"new_task","taskData":{"task":"","dueDate":"","nextAction":"","notes":"","status":"Open"},"updateTaskId":""}`,
     messages: [{ role: 'user', content: userMessage }],
   });
@@ -116,10 +116,10 @@ async function morningBriefing() {
     return (Date.now() - new Date(t.lastPrompted)) / (1000 * 60 * 60 * 24) > 3;
   });
 
-  let msg = `?? Morning Bryce — here's your rundown:\n\n`;
-  if (overdue.length) msg += `?? *Overdue (${overdue.length}):*\n${overdue.map(t => `• ${t.task}`).join('\n')}\n\n`;
-  if (dueToday.length) msg += `?? *Due today (${dueToday.length}):*\n${dueToday.map(t => `• ${t.task}`).join('\n')}\n\n`;
-  if (noUpdate.length) msg += `?? *No update in 3+ days (${noUpdate.length}):*\n${noUpdate.map(t => `• ${t.task}`).join('\n')}\n\n`;
+  let msg = `?? Morning Bryce ï¿½ here's your rundown:\n\n`;
+  if (overdue.length) msg += `?? *Overdue (${overdue.length}):*\n${overdue.map(t => `ï¿½ ${t.task}`).join('\n')}\n\n`;
+  if (dueToday.length) msg += `?? *Due today (${dueToday.length}):*\n${dueToday.map(t => `ï¿½ ${t.task}`).join('\n')}\n\n`;
+  if (noUpdate.length) msg += `?? *No update in 3+ days (${noUpdate.length}):*\n${noUpdate.map(t => `ï¿½ ${t.task}`).join('\n')}\n\n`;
   if (!overdue.length && !dueToday.length && !noUpdate.length) msg += `? All clear!\n\n`;
   msg += `Reply with updates or drop new tasks here.`;
 
@@ -148,7 +148,7 @@ app.message(async ({ message, say }) => {
     await say(result.reply);
   } catch (err) {
     console.error('? Error:', err.message);
-    await say('Something went wrong — ' + err.message);
+    await say('Something went wrong ï¿½ ' + err.message);
   }
 });
 
