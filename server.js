@@ -6,16 +6,12 @@ const Anthropic = require('@anthropic-ai/sdk');
 const cron = require('node-cron');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
-  appToken: process.env.SLACK_APP_TOKEN,
-  socketMode: true,
-});
+const app = new App({ token: process.env.SLACK_BOT_TOKEN, appToken: process.env.SLACK_APP_TOKEN, socketMode: true });
 
 http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
 
 let savedChannel = null;
+const conversationHistory = [];
 
 async function getSheetClient() {
   const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
@@ -34,14 +30,13 @@ async function getTasks() {
 }
 
 async function appendTask(task) {
-  console.log('Saving task:', task.task);
+  console.log('Saving:', task.task);
   const sheets = await getSheetClient();
   const id = Date.now().toString();
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Tasks!A:H', valueInputOption: 'USER_ENTERED',
     requestBody: { values: [[id, task.task, 'Open', task.dueDate || '', new Date().toISOString(), task.nextAction || '', task.notes || '', task.reminderTime || '']] },
   });
-  console.log('Saved:', id);
   return id;
 }
 
@@ -54,31 +49,51 @@ async function updateTask(rowIndex, updates) {
 }
 
 async function processWithClaude(userMessage, tasks) {
-  console.log('Claude:', userMessage);
+  const now = new Date();
+  const saTime = now.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Johannesburg' });
+  const saDate = now.toLocaleDateString('en-ZA', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' });
+
   const taskSummary = tasks.filter(t => t.status !== 'Done')
     .map(t => `[${t.id}] ${t.task} | ${t.status} | Due: ${t.dueDate || 'none'} | Reminder: ${t.reminderTime || 'none'}`)
     .join('\n');
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6', max_tokens: 1024,
-    system: `You are Bryce's PA bot on Slack. Capture tasks, track follow-ups, stay concise.
+  const systemPrompt = `You are Bryce's PA bot on Slack. Capture tasks, track follow-ups, stay concise and direct.
 
-1. New task - extract name, due date, next action, reminder time (24hr HH:MM if mentioned)
+Current SA time: ${saTime}
+Current SA date: ${saDate}
+
+When he sends a message:
+1. New task - extract name, due date, next action, reminder time (24hr HH:MM format if mentioned, calculate from current time if he says "in X minutes")
 2. Status update - find and update the task
 3. "Done" - mark done
-4. Confirm and ask one follow-up
+4. Confirm what you did, ask one follow-up if useful
 
-Tasks: ${taskSummary || 'None yet.'}
+Open tasks:
+${taskSummary || 'None yet.'}
 
-Reply in raw JSON only, no markdown:
-{"reply":"","action":"new_task","taskData":{"task":"","dueDate":"","nextAction":"","notes":"","status":"Open","reminderTime":""},"updateTaskId":""}`,
-    messages: [{ role: 'user', content: userMessage }],
+Reply in raw JSON only, absolutely no markdown or code blocks:
+{"reply":"your plain text reply","action":"new_task or update_task or no_action","taskData":{"task":"","dueDate":"","nextAction":"","notes":"","status":"Open","reminderTime":""},"updateTaskId":""}`;
+
+  conversationHistory.push({ role: 'user', content: userMessage });
+  if (conversationHistory.length > 10) conversationHistory.splice(0, 2);
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6', max_tokens: 1024,
+    system: systemPrompt,
+    messages: conversationHistory,
   });
 
   const raw = response.content[0].text.trim();
-  console.log('Response:', raw);
-  try { return JSON.parse(raw); }
-  catch { return { reply: raw, action: 'no_action' }; }
+  console.log('Claude:', raw);
+
+  try {
+    const parsed = JSON.parse(raw);
+    conversationHistory.push({ role: 'assistant', content: raw });
+    return parsed;
+  } catch {
+    conversationHistory.push({ role: 'assistant', content: raw });
+    return { reply: raw, action: 'no_action' };
+  }
 }
 
 async function morningBriefing() {
@@ -98,7 +113,7 @@ async function morningBriefing() {
   msg += `Reply with updates or new tasks.`;
 
   await app.client.chat.postMessage({ channel: savedChannel, text: msg });
-  for (const t of [...overdue, ...dueToday, ...stale])
+  for (const t of [...new Set([...overdue, ...dueToday, ...stale])])
     await updateTask(t.rowIndex, { ...t, lastPrompted: new Date().toISOString() });
 }
 
